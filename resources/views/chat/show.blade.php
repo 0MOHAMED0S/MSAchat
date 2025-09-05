@@ -1,14 +1,14 @@
 @extends('layouts.app')
 
 @section('content')
-<div class="d-flex flex-column vh-100 p-2" style="gap:0.5rem;">
+<div class="container">
     <!-- Chat Header -->
-    <div class="d-flex align-items-center p-2 rounded shadow-sm bg-white flex-shrink-0">
+    <div class="d-flex align-items-center mb-3 p-2 rounded shadow-sm bg-white">
         <img src="{{ $receiver->avatar ?? 'https://ui-avatars.com/api/?name=' . urlencode($receiver->name) . '&background=random' }}"
              alt="{{ $receiver->name }}"
              class="rounded-circle me-3"
              style="width:50px; height:50px; object-fit:cover;">
-        <div class="flex-grow-1">
+        <div>
             <h5 class="fw-bold mb-0 d-flex align-items-center">
                 <span id="partner-name">{{ $receiver->name }}</span>
                 <span class="status-dot ms-2" id="status-{{ $receiver->id }}"
@@ -21,22 +21,25 @@
     </div>
 
     <!-- Chat Messages Box -->
-    <div id="messages" class="flex-grow-1 border p-3 bg-light rounded-3 overflow-auto d-flex flex-column"
-         style="gap:0.5rem;">
+    <div id="messages" class="border p-3 mb-2 bg-light"
+         style="height:400px; overflow-y:auto; border-radius:12px; display:flex; flex-direction:column;">
     </div>
 
     <!-- Chat Input -->
-    <form id="chat-form" class="input-group flex-shrink-0">
-        <input type="text" id="message" class="form-control rounded-start" placeholder="Type a message..." autocomplete="off">
-        <button id="send" class="btn btn-primary rounded-end">
+    <div class="input-group mt-2">
+        <input type="text" id="message" class="form-control" placeholder="Type a message...">
+        <button id="send" class="btn btn-primary">
             <i class="bi bi-send"></i>
         </button>
-    </form>
+    </div>
 </div>
 @endsection
 
 @section('scripts')
 <script type="module">
+/* -----------------------------
+   Config / DOM
+----------------------------- */
 let conversationId = @json($conversation->id ?? null);
 const myId = Number(@json(auth()->id()));
 const partnerId = Number(@json($receiver->id));
@@ -45,17 +48,26 @@ const messagesEl = document.getElementById("messages");
 const statusEl = document.getElementById(`status-${partnerId}`);
 const input = document.getElementById("message");
 const typingEl = document.getElementById("typing-indicator");
-const chatForm = document.getElementById("chat-form");
 
 let currentChatSubscription = null;
 
-function scrollToBottom() {
-    messagesEl.scrollTop = messagesEl.scrollHeight;
-}
+// ✅ Fix for browser back/forward navigation restoring old state
+window.addEventListener("pageshow", function (event) {
+    if (event.persisted || (performance.getEntriesByType("navigation")[0]?.type === "back_forward")) {
+        window.location.reload();
+    }
+});
 
+/* -----------------------------
+   Utilities
+----------------------------- */
 function formatDate(dateStr) {
     let d = new Date(dateStr);
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function scrollToBottom() {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
 function renderMessage(msg, isTemp = false) {
@@ -66,52 +78,63 @@ function renderMessage(msg, isTemp = false) {
     let alignClass = isMine ? "text-end" : "text-start";
 
     let wrapper = document.createElement("div");
-    wrapper.className = `d-flex flex-column ${alignClass} mb-2`;
+    wrapper.className = `d-flex flex-column ${alignClass} mb-3`;
     wrapper.id = `msg-${msg.id}`;
 
     wrapper.innerHTML = `
-        <div class="p-2 px-3 ${bubbleClass} rounded-3 shadow-sm message-bubble" style="max-width:75%; word-wrap:break-word;">
+        <div class="p-2 px-3 ${bubbleClass} rounded-3 shadow-sm message-bubble"
+             style="max-width:75%; word-wrap:break-word;">
             ${msg.message}
         </div>
         <div class="small text-muted mt-1">
             ${formatDate(msg.created_at)} ${isMine ? `<span id="ticks-${msg.id}">${ticks}</span>` : ""}
         </div>
     `;
+
     if (isTemp) wrapper.classList.add("opacity-50");
     messagesEl.appendChild(wrapper);
     scrollToBottom();
 }
 
-// Load history
+/* -----------------------------
+   Load history
+----------------------------- */
 (@json($messages ?? [])).forEach(m => renderMessage(m));
 scrollToBottom();
 
-// Typing indicator
-Echo.private(`typing.${myId}`)
-    .listen('.UserTyping', e => {
-        if (e.senderId === partnerId) typingEl.style.display = e.isTyping ? "inline" : "none";
-    });
+/* -----------------------------
+   Subscriptions
+----------------------------- */
+function subscribeToTyping() {
+    Echo.private(`typing.${myId}`)
+        .listen('.UserTyping', (e) => {
+            // ✅ Show typing only if sender is current chat partner
+            if (e.senderId === partnerId) {
+                typingEl.style.display = e.isTyping ? "inline" : "none";
+            }
+        });
+}
 
-// Chat subscription
 function subscribeToChat(convoId) {
     if (!convoId) return;
-    if (currentChatSubscription === convoId) return;
+    if (currentChatSubscription && Number(currentChatSubscription) === Number(convoId)) return;
 
-    if (currentChatSubscription && currentChatSubscription !== convoId) {
+    if (currentChatSubscription && Number(currentChatSubscription) !== Number(convoId)) {
         try { Echo.leave(`chat.${currentChatSubscription}`); } catch {}
     }
 
-    currentChatSubscription = convoId;
+    currentChatSubscription = Number(convoId);
 
     Echo.private(`chat.${convoId}`)
-        .listen('MessageSent', e => {
+        .listen('MessageSent', (e) => {
             if (Number(e.message.sender?.id ?? e.message.sender_id ?? 0) !== myId) {
                 renderMessage(e.message);
             }
             markAsRead();
         })
-        .listen('MessageRead', e => {
-            if (Number(e.readerId ?? e.reader?.id ?? 0) === partnerId) {
+        .listen('MessageRead', (e) => {
+            const readerId = Number(e.readerId ?? e.reader?.id ?? 0);
+            if (readerId === partnerId) {
                 if (e.message_id) {
                     const tickEl = document.getElementById(`ticks-${e.message_id}`);
                     if (tickEl) tickEl.textContent = "✓✓";
@@ -124,7 +147,22 @@ function subscribeToChat(convoId) {
     markAsRead();
 }
 
-// Presence
+function subscribeToUserChannel() {
+    Echo.private(`user.${myId}`)
+        .listen('NewPrivateMessage', (e) => {
+            if (!e.message) return;
+            if (conversationId && Number(e.message.conversation_id ?? 0) === Number(conversationId)) {
+                renderMessage(e.message);
+                markAsRead();
+            } else {
+                console.log('New message in another conversation', e.message);
+            }
+        });
+}
+
+/* -----------------------------
+   Presence (online users)
+----------------------------- */
 Echo.join('online-users')
     .here(users => {
         statusEl.style.background = users.some(u => Number(u.id) === partnerId) ? 'green' : 'gray';
@@ -132,34 +170,43 @@ Echo.join('online-users')
     .joining(user => { if (Number(user.id) === partnerId) statusEl.style.background = 'green'; })
     .leaving(user => { if (Number(user.id) === partnerId) statusEl.style.background = 'gray'; });
 
-// Typing endpoint
+/* -----------------------------
+   Boot subscriptions
+----------------------------- */
+subscribeToTyping();
+subscribeToUserChannel();
+if (conversationId) subscribeToChat(conversationId);
+
+/* -----------------------------
+   Typing endpoint
+----------------------------- */
 function sendTyping(isTyping) {
-    fetch(`/chat/typing/${partnerId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': "{{ csrf_token() }}" },
-        body: JSON.stringify({ isTyping })
-    }).catch(()=>{});
+    const url = `/chat/typing/${partnerId}`;
+    const payload = JSON.stringify({ isTyping, _token: "{{ csrf_token() }}" });
+    if (navigator.sendBeacon) {
+        try { navigator.sendBeacon(url, new Blob([payload], { type: 'application/json' })); return; } catch {}
+    }
+    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': "{{ csrf_token() }}" }, body: payload, keepalive: true }).catch(()=>{});
 }
 
-let typingTimeout;
-input.addEventListener('input', () => {
-    sendTyping(true);
-    clearTimeout(typingTimeout);
-    typingTimeout = setTimeout(() => sendTyping(false), 2000);
-});
+input.addEventListener('focus', () => sendTyping(true));
+input.addEventListener('blur', () => sendTyping(false));
 
-// Send message
-chatForm.addEventListener('submit', async e => {
-    e.preventDefault();
+/* -----------------------------
+   Send message
+----------------------------- */
+async function sendMessage() {
     let text = input.value.trim();
     if (!text) return;
+
     sendTyping(false);
 
     let tempId = "temp-" + Date.now();
-    renderMessage({id: tempId, sender: {id: myId}, message: text, created_at: new Date().toISOString(), is_read:false}, true);
+    let tempMsg = { id: tempId, sender: { id: myId }, message: text, created_at: new Date().toISOString(), is_read: false };
+    renderMessage(tempMsg, true);
 
     input.value = "";
-    scrollToBottom();
+    input.blur();
 
     try {
         let res = await fetch(conversationId ? `/chat/${conversationId}/send` : `/chat/send`, {
@@ -179,29 +226,29 @@ chatForm.addEventListener('submit', async e => {
             if (tempEl) tempEl.remove();
             renderMessage(data.message);
         }
-    } catch (err) { console.error(err); }
-});
-
-// Mark as read
-function markAsRead() {
-    if (!conversationId) return;
-    fetch(`/chat/${conversationId}/read`, { method:'POST', headers:{'X-CSRF-TOKEN': "{{ csrf_token() }}"} });
+    } catch (err) {
+        console.error("Send failed", err);
+    }
 }
 
-// Boot
-subscribeToChat(conversationId);
+document.getElementById("send").addEventListener("click", sendMessage);
+input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); sendMessage(); } });
 
+/* -----------------------------
+   Mark as read
+----------------------------- */
+function markAsRead() {
+    if (!conversationId) return;
+    fetch(`/chat/${conversationId}/read`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json","X-CSRF-TOKEN": "{{ csrf_token() }}"}
+    }).catch(()=>{});
+}
 </script>
 
 <style>
-/* Professional Mobile Styles */
 .message-bubble { font-size: 15px; line-height: 1.4; }
 .opacity-50 { opacity: 0.5; }
-#messages::-webkit-scrollbar { width: 6px; }
-#messages::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius:3px; }
-@media (max-width: 768px) {
-    .vh-100 { height: 100vh !important; }
-    #messages { padding-bottom: 0.5rem; }
-}
 </style>
+
 @endsection
