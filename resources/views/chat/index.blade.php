@@ -85,6 +85,7 @@
 @endsection
 
 @section('scripts')
+
 <script type="module">
 let myId = parseInt("{{ auth()->id() }}");
 
@@ -232,4 +233,5 @@ Echo.join('online-users')
     color: #6a11cb !important;
 }
 </style>
+
 @endsection
