@@ -78,51 +78,28 @@ class ChatController extends Controller
 
     public function send(Request $request, $conversationId = null)
     {
-        $authId = Auth::id();
-
-        // Rate limit: prevent spam (e.g., 1 message per 5 seconds)
-        $lastMessage = Message::where('sender_id', $authId)
-            ->latest()
-            ->first();
-
-        if ($lastMessage && $lastMessage->created_at->diffInSeconds(now()) < 5) {
-            return response()->json([
-                'error' => 'Please wait a few seconds before sending another message.'
-            ], 429);
-        }
-
-        // Validate message
         $request->validate([
-            'message' => [
-                'required',
-                'string',
-                'min:1',
-                'max:1000', // max length
-                function ($attribute, $value, $fail) {
-                    // Prevent repeated single character spam
-                    if (preg_match('/^(.)\1+$/', $value)) {
-                        $fail('Your message is too repetitive.');
-                    }
-                }
-            ],
-            'receiver_id' => [
-                'required_without:conversationId',
-                'exists:users,id',
-            ],
+            'message' => 'required|string',
         ]);
 
-        // If no conversationId → create one
+        $authId = Auth::id();
+
+        // ✅ If no conversationId → create one
         if (!$conversationId) {
+            $request->validate([
+                'receiver_id' => 'required|exists:users,id',
+            ]);
+
             $conversation = Conversation::firstOrCreate([
                 'user_one_id' => min($authId, $request->receiver_id),
                 'user_two_id' => max($authId, $request->receiver_id),
             ]);
+
             $conversationId = $conversation->id;
         } else {
             $conversation = Conversation::findOrFail($conversationId);
         }
 
-        // Create message
         $message = Message::create([
             'conversation_id' => $conversationId,
             'sender_id' => $authId,
@@ -133,10 +110,9 @@ class ChatController extends Controller
 
         return response()->json([
             'message' => $message,
-            'conversation_id' => $conversationId,
+            'conversation_id' => $conversationId, // ✅ return id for frontend
         ]);
     }
-
 
 
     public function typing(Request $request, $receiverId)
