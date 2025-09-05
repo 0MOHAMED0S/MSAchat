@@ -8,37 +8,39 @@
         <input type="text" id="search-users" class="form-control" placeholder="Search friends by name...">
     </div>
 
-    <!-- Users list -->
-    <ul class="list-group list-group-flush" id="users-list" style="border-radius: 12px; overflow: hidden;">
-        @foreach($users as $user)
-            <li class="list-group-item d-flex justify-content-between align-items-center py-3 user-item"
-                id="user-{{ $user->id }}"
-                style="cursor: pointer; transition: 0.2s;"
-                onclick="window.location='{{ route('chat.show', $user->id) }}'">
+    <!-- Scrollable Users list -->
+    <div style="height: 70vh; overflow-y: auto; border-radius: 12px; border: 1px solid #e0e0e0;">
+        <ul class="list-group list-group-flush" id="users-list" style="border-radius: 12px; overflow: hidden;">
+            @foreach($users as $user)
+                <li class="list-group-item d-flex justify-content-between align-items-center py-3 user-item"
+                    id="user-{{ $user->id }}"
+                    style="cursor: pointer; transition: 0.2s;"
+                    onclick="window.location='{{ route('chat.show', $user->id) }}'">
 
-                <div class="d-flex align-items-center">
-                    <!-- Avatar with status dot -->
-                    <div class="position-relative me-3">
-                        <img src="{{ $user->avatar ?? 'https://i.pravatar.cc/48?u='.$user->id }}"
-                             class="rounded-circle shadow-sm" width="48" height="48">
-                        <span class="position-absolute bottom-0 end-0 translate-middle p-1 border border-white rounded-circle"
-                              id="status-{{ $user->id }}"
-                              style="background:gray; width:12px; height:12px;"></span>
+                    <div class="d-flex align-items-center">
+                        <!-- Avatar with status dot -->
+                        <div class="position-relative me-3">
+                            <img src="{{ $user->avatar ?? 'https://i.pravatar.cc/48?u='.$user->id }}"
+                                 class="rounded-circle shadow-sm" width="48" height="48">
+                            <span class="position-absolute bottom-0 end-0 translate-middle p-1 border border-white rounded-circle"
+                                  id="status-{{ $user->id }}"
+                                  style="background:gray; width:12px; height:12px;"></span>
+                        </div>
+
+                        <!-- User info -->
+                        <div>
+                            <span class="fw-semibold">{{ $user->name }}</span>
+                        </div>
                     </div>
 
-                    <!-- User info -->
-                    <div>
-                        <span class="fw-semibold">{{ $user->name }}</span>
-                    </div>
-                </div>
-
-                <!-- Chat button -->
-                <a href="{{ route('chat.show', $user->id) }}" class="btn btn-sm btn-outline-primary">
-                    <i class="bi bi-chat-dots"></i> Chat
-                </a>
-            </li>
-        @endforeach
-    </ul>
+                    <!-- Chat button -->
+                    <a href="{{ route('chat.show', $user->id) }}" class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-chat-dots"></i> Chat
+                    </a>
+                </li>
+            @endforeach
+        </ul>
+    </div>
 @endsection
 
 @section('scripts')
@@ -109,7 +111,6 @@
 </script>
 
 <style>
-/* Hover effect */
 .user-item:hover {
     background-color: rgba(106, 17, 203, 0.08);
 }
