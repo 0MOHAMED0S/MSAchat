@@ -23,7 +23,6 @@ class User extends Authenticatable
         'password',
         'avatar',
         'google_id',
-        // 'onesignal_player_id'
     ];
 
     /**

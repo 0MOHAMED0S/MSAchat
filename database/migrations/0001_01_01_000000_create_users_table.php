@@ -17,7 +17,6 @@ return new class extends Migration
             $table->string('email')->unique();
             $table->string('google_id')->unique();
             $table->string('avatar');
-            // $table->string('onesignal_player_id')->nullable();
             $table->string('password');
             $table->timestamps();
         });
