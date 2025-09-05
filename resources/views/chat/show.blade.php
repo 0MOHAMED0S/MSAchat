@@ -21,8 +21,8 @@
     </div>
 
     <!-- Chat Messages Box -->
-    <div id="messages" class="border p-2 mb-2 bg-light"
-         style="height:auto; max-height:400px; overflow-y:auto; border-radius:12px; display:flex; flex-direction:column-reverse;">
+    <div id="messages" class="border p-3 mb-2 bg-light"
+         style="height:400px; overflow-y:auto; border-radius:12px; display:flex; flex-direction:column;">
     </div>
 
     <!-- Chat Input -->
@@ -37,6 +37,9 @@
 
 @section('scripts')
 <script type="module">
+/* -----------------------------
+   Config / DOM
+----------------------------- */
 let conversationId = @json($conversation->id ?? null);
 const myId = Number(@json(auth()->id()));
 const partnerId = Number(@json($receiver->id));
@@ -48,14 +51,16 @@ const typingEl = document.getElementById("typing-indicator");
 
 let currentChatSubscription = null;
 
-// Fix browser back/forward restoring old state
+// ✅ Fix for browser back/forward navigation restoring old state
 window.addEventListener("pageshow", function (event) {
     if (event.persisted || (performance.getEntriesByType("navigation")[0]?.type === "back_forward")) {
         window.location.reload();
     }
 });
 
-// Utilities
+/* -----------------------------
+   Utilities
+----------------------------- */
 function formatDate(dateStr) {
     let d = new Date(dateStr);
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -65,8 +70,7 @@ function scrollToBottom() {
     messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-// Render message
-function renderMessage(msg, isTemp = false, prepend = false) {
+function renderMessage(msg, isTemp = false) {
     const senderId = Number(msg.sender?.id ?? msg.sender_id ?? 0);
     let isMine = senderId === myId;
     let ticks = isMine ? (msg.is_read ? "✓✓" : "✓") : "";
@@ -74,7 +78,7 @@ function renderMessage(msg, isTemp = false, prepend = false) {
     let alignClass = isMine ? "text-end" : "text-start";
 
     let wrapper = document.createElement("div");
-    wrapper.className = `d-flex flex-column ${alignClass} mb-2`;
+    wrapper.className = `d-flex flex-column ${alignClass} mb-3`;
     wrapper.id = `msg-${msg.id}`;
 
     wrapper.innerHTML = `
@@ -88,35 +92,29 @@ function renderMessage(msg, isTemp = false, prepend = false) {
     `;
 
     if (isTemp) wrapper.classList.add("opacity-50");
-
-    if (prepend) messagesEl.prepend(wrapper);
-    else messagesEl.appendChild(wrapper);
-
-    // Keep only last 7 messages
-    const allMsgs = messagesEl.querySelectorAll(".d-flex.flex-column");
-    if (allMsgs.length > 7) {
-        for (let i = 0; i < allMsgs.length - 7; i++) allMsgs[i].remove();
-    }
-
+    messagesEl.appendChild(wrapper);
     scrollToBottom();
 }
 
-// Load history - last 7 messages
-const history = @json($messages ?? []);
-history.slice(-7).forEach(m => renderMessage(m));
+/* -----------------------------
+   Load history
+----------------------------- */
+(@json($messages ?? [])).forEach(m => renderMessage(m));
 scrollToBottom();
 
-// Typing subscription
+/* -----------------------------
+   Subscriptions
+----------------------------- */
 function subscribeToTyping() {
     Echo.private(`typing.${myId}`)
         .listen('.UserTyping', (e) => {
+            // ✅ Show typing only if sender is current chat partner
             if (e.senderId === partnerId) {
                 typingEl.style.display = e.isTyping ? "inline" : "none";
             }
         });
 }
 
-// Chat subscription
 function subscribeToChat(convoId) {
     if (!convoId) return;
     if (currentChatSubscription && Number(currentChatSubscription) === Number(convoId)) return;
@@ -149,7 +147,6 @@ function subscribeToChat(convoId) {
     markAsRead();
 }
 
-// User channel subscription
 function subscribeToUserChannel() {
     Echo.private(`user.${myId}`)
         .listen('NewPrivateMessage', (e) => {
@@ -157,11 +154,15 @@ function subscribeToUserChannel() {
             if (conversationId && Number(e.message.conversation_id ?? 0) === Number(conversationId)) {
                 renderMessage(e.message);
                 markAsRead();
+            } else {
+                console.log('New message in another conversation', e.message);
             }
         });
 }
 
-// Presence
+/* -----------------------------
+   Presence (online users)
+----------------------------- */
 Echo.join('online-users')
     .here(users => {
         statusEl.style.background = users.some(u => Number(u.id) === partnerId) ? 'green' : 'gray';
@@ -169,12 +170,16 @@ Echo.join('online-users')
     .joining(user => { if (Number(user.id) === partnerId) statusEl.style.background = 'green'; })
     .leaving(user => { if (Number(user.id) === partnerId) statusEl.style.background = 'gray'; });
 
-// Boot subscriptions
+/* -----------------------------
+   Boot subscriptions
+----------------------------- */
 subscribeToTyping();
 subscribeToUserChannel();
 if (conversationId) subscribeToChat(conversationId);
 
-// Typing endpoint
+/* -----------------------------
+   Typing endpoint
+----------------------------- */
 function sendTyping(isTyping) {
     const url = `/chat/typing/${partnerId}`;
     const payload = JSON.stringify({ isTyping, _token: "{{ csrf_token() }}" });
@@ -187,7 +192,9 @@ function sendTyping(isTyping) {
 input.addEventListener('focus', () => sendTyping(true));
 input.addEventListener('blur', () => sendTyping(false));
 
-// Send message
+/* -----------------------------
+   Send message
+----------------------------- */
 async function sendMessage() {
     let text = input.value.trim();
     if (!text) return;
@@ -227,7 +234,9 @@ async function sendMessage() {
 document.getElementById("send").addEventListener("click", sendMessage);
 input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); sendMessage(); } });
 
-// Mark as read
+/* -----------------------------
+   Mark as read
+----------------------------- */
 function markAsRead() {
     if (!conversationId) return;
     fetch(`/chat/${conversationId}/read`, {
@@ -238,17 +247,8 @@ function markAsRead() {
 </script>
 
 <style>
-#messages {
-    display: flex;
-    flex-direction: column-reverse; /* newest at bottom */
-    gap: 4px;
-}
-.message-bubble {
-    font-size: 15px;
-    line-height: 1.4;
-}
-.opacity-50 {
-    opacity: 0.5;
-}
+.message-bubble { font-size: 15px; line-height: 1.4; }
+.opacity-50 { opacity: 0.5; }
 </style>
+
 @endsection
