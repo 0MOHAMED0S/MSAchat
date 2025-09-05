@@ -12,17 +12,20 @@
     OneSignalDeferred.push(async function(OneSignal) {
       await OneSignal.init({
         appId: "158fd30f-7402-40e9-a094-2553d94e7ab5",
+        promptOptions: {
+          slidedown: {
+            enabled: true, // Enable prompt
+            autoPrompt: true // Show automatically after init
+          }
+        }
       });
 
-      // Button click will show native push permission prompt
-      document.getElementById("subscribeBtn").addEventListener("click", async () => {
-        await OneSignal.Slidedown.promptPush();
-      });
+      // 🚀 Force immediate prompt (no waiting)
+      await OneSignal.Slidedown.promptPush();
     });
   </script>
 </head>
 <body>
-  <h2>Click to Subscribe for Notifications</h2>
-  <button id="subscribeBtn">Subscribe Now</button>
+  <h2>OneSignal Instant Subscribe</h2>
 </body>
 </html>
