@@ -85,6 +85,7 @@
                 flex-direction: column;
                 align-items: center;
             }
+
             .user-info {
                 justify-content: center;
             }
@@ -111,8 +112,9 @@
                             <i class="bi bi-house-door-fill"></i>
                         </a>
                         <a href="{{ route('chat.users') }}" class="text-white fs-5 me-3">
-                            <i class="bi bi-search"></i>
+                            <i class="bi bi-people"></i>
                         </a>
+
                         @auth
                             <form action="{{ route('logout') }}" method="POST" class="d-inline">
                                 @csrf
@@ -127,7 +129,7 @@
                     @auth
                         <div class="user-info">
                             <img src="{{ Auth::user()->avatar ?? 'https://ui-avatars.com/api/?name=' . urlencode(Auth::user()->name) . '&background=random' }}"
-                                 alt="Avatar">
+                                alt="Avatar">
                             <span>{{ Auth::user()->name }}</span>
                         </div>
                     @endauth

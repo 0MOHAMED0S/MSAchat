@@ -1,24 +1,33 @@
 <?php
 
 use Illuminate\Support\Facades\Broadcast;
+use App\Models\Conversation;
 
-Broadcast::channel('App.Models.User.{id}', function ($user, $id) {
+// Private user channel for notifications or general events
+Broadcast::channel('user.{id}', function ($user, $id) {
     return (int) $user->id === (int) $id;
 });
 
+// Private conversation channel
 Broadcast::channel('chat.{conversationId}', function ($user, $conversationId) {
-    $conversation = \App\Models\Conversation::find($conversationId);
-    if (!$conversation) return false;
-    return in_array($user->id, [$conversation->user_one_id, $conversation->user_two_id]);
+    return Conversation::where('id', $conversationId)
+        ->where(function ($q) use ($user) {
+            $q->where('user_one_id', $user->id)
+              ->orWhere('user_two_id', $user->id);
+        })->exists();
 });
+
+// Typing indicator channel (private to receiver)
 Broadcast::channel('typing.{receiverId}', function ($user, $receiverId) {
-    // only allow if the logged-in user is the receiver or sender
-    return (int) $user->id === (int) $receiverId || true;
+    return (int) $user->id === (int) $receiverId;
 });
-// ✅ last message updates for user list
+
+// Chat list updates channel (last message & unread counters)
 Broadcast::channel('chat-list.{userId}', function ($user, $userId) {
     return (int) $user->id === (int) $userId;
 });
+
+// Online users presence channel
 Broadcast::channel('online-users', function ($user) {
     return ['id' => $user->id, 'name' => $user->name];
 });

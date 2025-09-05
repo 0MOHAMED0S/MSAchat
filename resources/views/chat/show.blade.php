@@ -37,24 +37,42 @@
 
 @section('scripts')
 <script type="module">
+/* -----------------------------
+   Config / DOM
+----------------------------- */
 let conversationId = @json($conversation->id ?? null);
-let myId = parseInt("{{ auth()->id() }}");
-let partnerId = parseInt("{{ $receiver->id }}");
+const myId = Number(@json(auth()->id()));
+const partnerId = Number(@json($receiver->id));
 
 const messagesEl = document.getElementById("messages");
 const statusEl = document.getElementById(`status-${partnerId}`);
 const input = document.getElementById("message");
 const typingEl = document.getElementById("typing-indicator");
 
-// --- Format date ---
+let currentChatSubscription = null;
+
+// ✅ Fix for browser back/forward navigation restoring old state
+window.addEventListener("pageshow", function (event) {
+    if (event.persisted || (performance.getEntriesByType("navigation")[0]?.type === "back_forward")) {
+        window.location.reload();
+    }
+});
+
+/* -----------------------------
+   Utilities
+----------------------------- */
 function formatDate(dateStr) {
     let d = new Date(dateStr);
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-// --- Render message ---
+function scrollToBottom() {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
 function renderMessage(msg, isTemp = false) {
-    let isMine = msg.sender.id == myId;
+    const senderId = Number(msg.sender?.id ?? msg.sender_id ?? 0);
+    let isMine = senderId === myId;
     let ticks = isMine ? (msg.is_read ? "✓✓" : "✓") : "";
     let bubbleClass = isMine ? "bg-primary text-white align-self-end" : "bg-white border align-self-start";
     let alignClass = isMine ? "text-end" : "text-start";
@@ -75,36 +93,93 @@ function renderMessage(msg, isTemp = false) {
 
     if (isTemp) wrapper.classList.add("opacity-50");
     messagesEl.appendChild(wrapper);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    scrollToBottom();
 }
 
-// --- Load history ---
+/* -----------------------------
+   Load history
+----------------------------- */
 (@json($messages ?? [])).forEach(m => renderMessage(m));
-messagesEl.scrollTop = messagesEl.scrollHeight;
+scrollToBottom();
 
-// --- Real-time messaging ---
-if (conversationId) {
-    Echo.private(`chat.${conversationId}`)
-        .listen("MessageSent", (e) => {
-            if (e.message.sender.id !== myId) renderMessage(e.message);
-            markAsRead();
-        })
-        .listen("MessageRead", (e) => {
-            if (e.readerId === partnerId) {
-                document.querySelectorAll("[id^='ticks-']").forEach(t => t.textContent = "✓✓");
+/* -----------------------------
+   Subscriptions
+----------------------------- */
+function subscribeToTyping() {
+    Echo.private(`typing.${myId}`)
+        .listen('.UserTyping', (e) => {
+            // ✅ Show typing only if sender is current chat partner
+            if (e.senderId === partnerId) {
+                typingEl.style.display = e.isTyping ? "inline" : "none";
             }
         });
+}
 
-    // Typing indicator from server
-    Echo.private(`typing.${myId}`)
-        .listen(".UserTyping", (e) => {
-            typingEl.style.display = e.isTyping ? "inline" : "none";
+function subscribeToChat(convoId) {
+    if (!convoId) return;
+    if (currentChatSubscription && Number(currentChatSubscription) === Number(convoId)) return;
+
+    if (currentChatSubscription && Number(currentChatSubscription) !== Number(convoId)) {
+        try { Echo.leave(`chat.${currentChatSubscription}`); } catch {}
+    }
+
+    currentChatSubscription = Number(convoId);
+
+    Echo.private(`chat.${convoId}`)
+        .listen('MessageSent', (e) => {
+            if (Number(e.message.sender?.id ?? e.message.sender_id ?? 0) !== myId) {
+                renderMessage(e.message);
+            }
+            markAsRead();
+        })
+        .listen('MessageRead', (e) => {
+            const readerId = Number(e.readerId ?? e.reader?.id ?? 0);
+            if (readerId === partnerId) {
+                if (e.message_id) {
+                    const tickEl = document.getElementById(`ticks-${e.message_id}`);
+                    if (tickEl) tickEl.textContent = "✓✓";
+                } else {
+                    document.querySelectorAll("[id^='ticks-']").forEach(t => t.textContent = "✓✓");
+                }
+            }
         });
 
     markAsRead();
 }
 
-// --- Typing indicator (focus only, independent of sending) ---
+function subscribeToUserChannel() {
+    Echo.private(`user.${myId}`)
+        .listen('NewPrivateMessage', (e) => {
+            if (!e.message) return;
+            if (conversationId && Number(e.message.conversation_id ?? 0) === Number(conversationId)) {
+                renderMessage(e.message);
+                markAsRead();
+            } else {
+                console.log('New message in another conversation', e.message);
+            }
+        });
+}
+
+/* -----------------------------
+   Presence (online users)
+----------------------------- */
+Echo.join('online-users')
+    .here(users => {
+        statusEl.style.background = users.some(u => Number(u.id) === partnerId) ? 'green' : 'gray';
+    })
+    .joining(user => { if (Number(user.id) === partnerId) statusEl.style.background = 'green'; })
+    .leaving(user => { if (Number(user.id) === partnerId) statusEl.style.background = 'gray'; });
+
+/* -----------------------------
+   Boot subscriptions
+----------------------------- */
+subscribeToTyping();
+subscribeToUserChannel();
+if (conversationId) subscribeToChat(conversationId);
+
+/* -----------------------------
+   Typing endpoint
+----------------------------- */
 function sendTyping(isTyping) {
     const url = `/chat/typing/${partnerId}`;
     const payload = JSON.stringify({ isTyping, _token: "{{ csrf_token() }}" });
@@ -117,55 +192,63 @@ function sendTyping(isTyping) {
 input.addEventListener('focus', () => sendTyping(true));
 input.addEventListener('blur', () => sendTyping(false));
 
-// --- Send message instantly, independent of typing ---
+/* -----------------------------
+   Send message
+----------------------------- */
 async function sendMessage() {
     let text = input.value.trim();
     if (!text) return;
 
-    sendTyping(false); // stop typing immediately
+    sendTyping(false);
 
     let tempId = "temp-" + Date.now();
     let tempMsg = { id: tempId, sender: { id: myId }, message: text, created_at: new Date().toISOString(), is_read: false };
     renderMessage(tempMsg, true);
 
     input.value = "";
-    input.blur(); // remove focus immediately
+    input.blur();
 
-    fetch(conversationId ? `/chat/${conversationId}/send` : `/chat/send`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": "{{ csrf_token() }}" },
-        body: JSON.stringify({ message: text, receiver_id: partnerId })
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (!conversationId && data.conversation_id) conversationId = data.conversation_id;
+    try {
+        let res = await fetch(conversationId ? `/chat/${conversationId}/send` : `/chat/send`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": "{{ csrf_token() }}" },
+            body: JSON.stringify({ message: text, receiver_id: partnerId })
+        });
+        let data = await res.json();
+
+        if (!conversationId && data.conversation_id) {
+            conversationId = data.conversation_id;
+            subscribeToChat(conversationId);
+        }
+
         if (data.message) {
             let tempEl = document.getElementById(`msg-${tempId}`);
             if (tempEl) tempEl.remove();
             renderMessage(data.message);
         }
-    }).catch(err => console.error("Send failed", err));
+    } catch (err) {
+        console.error("Send failed", err);
+    }
 }
 
 document.getElementById("send").addEventListener("click", sendMessage);
 input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); sendMessage(); } });
 
-// --- Mark as read ---
+/* -----------------------------
+   Mark as read
+----------------------------- */
 function markAsRead() {
     if (!conversationId) return;
-    fetch(`/chat/${conversationId}/read`, { method: "POST", headers: {"Content-Type": "application/json","X-CSRF-TOKEN": "{{ csrf_token() }}"} }).catch(()=>{});
+    fetch(`/chat/${conversationId}/read`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json","X-CSRF-TOKEN": "{{ csrf_token() }}"}
+    }).catch(()=>{});
 }
-
-// --- Online/offline ---
-Echo.join('online-users')
-    .here(users => { statusEl.style.background = users.some(u => u.id === partnerId) ? 'green' : 'gray'; })
-    .joining(user => { if (user.id === partnerId) statusEl.style.background = 'green'; })
-    .leaving(user => { if (user.id === partnerId) statusEl.style.background = 'gray'; });
-
 </script>
 
 <style>
 .message-bubble { font-size: 15px; line-height: 1.4; }
 .opacity-50 { opacity: 0.5; }
 </style>
+
 @endsection
