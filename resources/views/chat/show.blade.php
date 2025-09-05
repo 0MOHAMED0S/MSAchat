@@ -1,14 +1,14 @@
 @extends('layouts.app')
 
 @section('content')
-<div class="container">
+<div class="d-flex flex-column vh-100 p-2" style="gap:0.5rem;">
     <!-- Chat Header -->
-    <div class="d-flex align-items-center mb-3 p-2 rounded shadow-sm bg-white">
+    <div class="d-flex align-items-center p-2 rounded shadow-sm bg-white flex-shrink-0">
         <img src="{{ $receiver->avatar ?? 'https://ui-avatars.com/api/?name=' . urlencode($receiver->name) . '&background=random' }}"
              alt="{{ $receiver->name }}"
              class="rounded-circle me-3"
              style="width:50px; height:50px; object-fit:cover;">
-        <div>
+        <div class="flex-grow-1">
             <h5 class="fw-bold mb-0 d-flex align-items-center">
                 <span id="partner-name">{{ $receiver->name }}</span>
                 <span class="status-dot ms-2" id="status-{{ $receiver->id }}"
@@ -21,25 +21,22 @@
     </div>
 
     <!-- Chat Messages Box -->
-    <div id="messages" class="border p-3 mb-2 bg-light"
-         style="height:400px; overflow-y:auto; border-radius:12px; display:flex; flex-direction:column;">
+    <div id="messages" class="flex-grow-1 border p-3 bg-light rounded-3 overflow-auto d-flex flex-column"
+         style="gap:0.5rem;">
     </div>
 
     <!-- Chat Input -->
-    <div class="input-group mt-2">
-        <input type="text" id="message" class="form-control" placeholder="Type a message...">
-        <button id="send" class="btn btn-primary">
+    <form id="chat-form" class="input-group flex-shrink-0">
+        <input type="text" id="message" class="form-control rounded-start" placeholder="Type a message..." autocomplete="off">
+        <button id="send" class="btn btn-primary rounded-end">
             <i class="bi bi-send"></i>
         </button>
-    </div>
+    </form>
 </div>
 @endsection
 
 @section('scripts')
 <script type="module">
-/* -----------------------------
-   Config / DOM
------------------------------ */
 let conversationId = @json($conversation->id ?? null);
 const myId = Number(@json(auth()->id()));
 const partnerId = Number(@json($receiver->id));
@@ -48,26 +45,17 @@ const messagesEl = document.getElementById("messages");
 const statusEl = document.getElementById(`status-${partnerId}`);
 const input = document.getElementById("message");
 const typingEl = document.getElementById("typing-indicator");
+const chatForm = document.getElementById("chat-form");
 
 let currentChatSubscription = null;
 
-// ✅ Fix for browser back/forward navigation restoring old state
-window.addEventListener("pageshow", function (event) {
-    if (event.persisted || (performance.getEntriesByType("navigation")[0]?.type === "back_forward")) {
-        window.location.reload();
-    }
-});
+function scrollToBottom() {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+}
 
-/* -----------------------------
-   Utilities
------------------------------ */
 function formatDate(dateStr) {
     let d = new Date(dateStr);
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-function scrollToBottom() {
-    messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
 function renderMessage(msg, isTemp = false) {
@@ -78,63 +66,52 @@ function renderMessage(msg, isTemp = false) {
     let alignClass = isMine ? "text-end" : "text-start";
 
     let wrapper = document.createElement("div");
-    wrapper.className = `d-flex flex-column ${alignClass} mb-3`;
+    wrapper.className = `d-flex flex-column ${alignClass} mb-2`;
     wrapper.id = `msg-${msg.id}`;
 
     wrapper.innerHTML = `
-        <div class="p-2 px-3 ${bubbleClass} rounded-3 shadow-sm message-bubble"
-             style="max-width:75%; word-wrap:break-word;">
+        <div class="p-2 px-3 ${bubbleClass} rounded-3 shadow-sm message-bubble" style="max-width:75%; word-wrap:break-word;">
             ${msg.message}
         </div>
         <div class="small text-muted mt-1">
             ${formatDate(msg.created_at)} ${isMine ? `<span id="ticks-${msg.id}">${ticks}</span>` : ""}
         </div>
     `;
-
     if (isTemp) wrapper.classList.add("opacity-50");
     messagesEl.appendChild(wrapper);
     scrollToBottom();
 }
 
-/* -----------------------------
-   Load history
------------------------------ */
+// Load history
 (@json($messages ?? [])).forEach(m => renderMessage(m));
 scrollToBottom();
 
-/* -----------------------------
-   Subscriptions
------------------------------ */
-function subscribeToTyping() {
-    Echo.private(`typing.${myId}`)
-        .listen('.UserTyping', (e) => {
-            // ✅ Show typing only if sender is current chat partner
-            if (e.senderId === partnerId) {
-                typingEl.style.display = e.isTyping ? "inline" : "none";
-            }
-        });
-}
+// Typing indicator
+Echo.private(`typing.${myId}`)
+    .listen('.UserTyping', e => {
+        if (e.senderId === partnerId) typingEl.style.display = e.isTyping ? "inline" : "none";
+    });
 
+// Chat subscription
 function subscribeToChat(convoId) {
     if (!convoId) return;
-    if (currentChatSubscription && Number(currentChatSubscription) === Number(convoId)) return;
+    if (currentChatSubscription === convoId) return;
 
-    if (currentChatSubscription && Number(currentChatSubscription) !== Number(convoId)) {
+    if (currentChatSubscription && currentChatSubscription !== convoId) {
         try { Echo.leave(`chat.${currentChatSubscription}`); } catch {}
     }
 
-    currentChatSubscription = Number(convoId);
+    currentChatSubscription = convoId;
 
     Echo.private(`chat.${convoId}`)
-        .listen('MessageSent', (e) => {
+        .listen('MessageSent', e => {
             if (Number(e.message.sender?.id ?? e.message.sender_id ?? 0) !== myId) {
                 renderMessage(e.message);
             }
             markAsRead();
         })
-        .listen('MessageRead', (e) => {
-            const readerId = Number(e.readerId ?? e.reader?.id ?? 0);
-            if (readerId === partnerId) {
+        .listen('MessageRead', e => {
+            if (Number(e.readerId ?? e.reader?.id ?? 0) === partnerId) {
                 if (e.message_id) {
                     const tickEl = document.getElementById(`ticks-${e.message_id}`);
                     if (tickEl) tickEl.textContent = "✓✓";
@@ -147,22 +124,7 @@ function subscribeToChat(convoId) {
     markAsRead();
 }
 
-function subscribeToUserChannel() {
-    Echo.private(`user.${myId}`)
-        .listen('NewPrivateMessage', (e) => {
-            if (!e.message) return;
-            if (conversationId && Number(e.message.conversation_id ?? 0) === Number(conversationId)) {
-                renderMessage(e.message);
-                markAsRead();
-            } else {
-                console.log('New message in another conversation', e.message);
-            }
-        });
-}
-
-/* -----------------------------
-   Presence (online users)
------------------------------ */
+// Presence
 Echo.join('online-users')
     .here(users => {
         statusEl.style.background = users.some(u => Number(u.id) === partnerId) ? 'green' : 'gray';
@@ -170,43 +132,34 @@ Echo.join('online-users')
     .joining(user => { if (Number(user.id) === partnerId) statusEl.style.background = 'green'; })
     .leaving(user => { if (Number(user.id) === partnerId) statusEl.style.background = 'gray'; });
 
-/* -----------------------------
-   Boot subscriptions
------------------------------ */
-subscribeToTyping();
-subscribeToUserChannel();
-if (conversationId) subscribeToChat(conversationId);
-
-/* -----------------------------
-   Typing endpoint
------------------------------ */
+// Typing endpoint
 function sendTyping(isTyping) {
-    const url = `/chat/typing/${partnerId}`;
-    const payload = JSON.stringify({ isTyping, _token: "{{ csrf_token() }}" });
-    if (navigator.sendBeacon) {
-        try { navigator.sendBeacon(url, new Blob([payload], { type: 'application/json' })); return; } catch {}
-    }
-    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': "{{ csrf_token() }}" }, body: payload, keepalive: true }).catch(()=>{});
+    fetch(`/chat/typing/${partnerId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': "{{ csrf_token() }}" },
+        body: JSON.stringify({ isTyping })
+    }).catch(()=>{});
 }
 
-input.addEventListener('focus', () => sendTyping(true));
-input.addEventListener('blur', () => sendTyping(false));
+let typingTimeout;
+input.addEventListener('input', () => {
+    sendTyping(true);
+    clearTimeout(typingTimeout);
+    typingTimeout = setTimeout(() => sendTyping(false), 2000);
+});
 
-/* -----------------------------
-   Send message
------------------------------ */
-async function sendMessage() {
+// Send message
+chatForm.addEventListener('submit', async e => {
+    e.preventDefault();
     let text = input.value.trim();
     if (!text) return;
-
     sendTyping(false);
 
     let tempId = "temp-" + Date.now();
-    let tempMsg = { id: tempId, sender: { id: myId }, message: text, created_at: new Date().toISOString(), is_read: false };
-    renderMessage(tempMsg, true);
+    renderMessage({id: tempId, sender: {id: myId}, message: text, created_at: new Date().toISOString(), is_read:false}, true);
 
     input.value = "";
-    input.blur();
+    scrollToBottom();
 
     try {
         let res = await fetch(conversationId ? `/chat/${conversationId}/send` : `/chat/send`, {
@@ -226,29 +179,29 @@ async function sendMessage() {
             if (tempEl) tempEl.remove();
             renderMessage(data.message);
         }
-    } catch (err) {
-        console.error("Send failed", err);
-    }
-}
+    } catch (err) { console.error(err); }
+});
 
-document.getElementById("send").addEventListener("click", sendMessage);
-input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); sendMessage(); } });
-
-/* -----------------------------
-   Mark as read
------------------------------ */
+// Mark as read
 function markAsRead() {
     if (!conversationId) return;
-    fetch(`/chat/${conversationId}/read`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json","X-CSRF-TOKEN": "{{ csrf_token() }}"}
-    }).catch(()=>{});
+    fetch(`/chat/${conversationId}/read`, { method:'POST', headers:{'X-CSRF-TOKEN': "{{ csrf_token() }}"} });
 }
+
+// Boot
+subscribeToChat(conversationId);
+
 </script>
 
 <style>
+/* Professional Mobile Styles */
 .message-bubble { font-size: 15px; line-height: 1.4; }
 .opacity-50 { opacity: 0.5; }
+#messages::-webkit-scrollbar { width: 6px; }
+#messages::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius:3px; }
+@media (max-width: 768px) {
+    .vh-100 { height: 100vh !important; }
+    #messages { padding-bottom: 0.5rem; }
+}
 </style>
-
 @endsection
