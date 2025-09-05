@@ -9,7 +9,8 @@
     </div>
 
     <!-- Scrollable Users list -->
-    <div style="height: 70vh; overflow-y: auto; border-radius: 12px; border: 1px solid #e0e0e0;">
+    <div style="height: calc(5 * 72px); /* 5 items * approx height each item */
+                overflow-y: auto; border-radius: 12px; border: 1px solid #e0e0e0;">
         <ul class="list-group list-group-flush" id="users-list" style="border-radius: 12px; overflow: hidden;">
             @foreach($users as $user)
                 <li class="list-group-item d-flex justify-content-between align-items-center py-3 user-item"
@@ -18,7 +19,6 @@
                     onclick="window.location='{{ route('chat.show', $user->id) }}'">
 
                     <div class="d-flex align-items-center">
-                        <!-- Avatar with status dot -->
                         <div class="position-relative me-3">
                             <img src="{{ $user->avatar ?? 'https://i.pravatar.cc/48?u='.$user->id }}"
                                  class="rounded-circle shadow-sm" width="48" height="48">
@@ -27,13 +27,11 @@
                                   style="background:gray; width:12px; height:12px;"></span>
                         </div>
 
-                        <!-- User info -->
                         <div>
                             <span class="fw-semibold">{{ $user->name }}</span>
                         </div>
                     </div>
 
-                    <!-- Chat button -->
                     <a href="{{ route('chat.show', $user->id) }}" class="btn btn-sm btn-outline-primary">
                         <i class="bi bi-chat-dots"></i> Chat
                     </a>
@@ -47,7 +45,6 @@
 <script type="module">
     let myId = parseInt("{{ auth()->id() }}");
 
-    // Presence channel for online/offline users
     Echo.join('online-users')
         .here((users) => {
             users.forEach(user => {
@@ -64,7 +61,6 @@
             if (el) el.style.background = 'gray';
         });
 
-    // AJAX search
     const searchInput = document.getElementById('search-users');
     const usersList = document.getElementById('users-list');
 
