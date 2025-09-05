@@ -63,14 +63,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
 <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
-  <script>
-    window.OneSignalDeferred = window.OneSignalDeferred || [];
-    OneSignalDeferred.push(async function(OneSignal) {
-      await OneSignal.init({
-        appId: "158fd30f-7402-40e9-a094-2553d94e7ab5",
-      });
+<script>
+  window.OneSignalDeferred = window.OneSignalDeferred || [];
+  OneSignalDeferred.push(async function(OneSignal) {
+    await OneSignal.init({
+      appId: "158fd30f-7402-40e9-a094-2553d94e7ab5",
     });
-  </script>
+  });
+</script>
 
 </head>
 <body>
