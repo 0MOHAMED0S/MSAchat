@@ -1,18 +1,18 @@
 @extends('layouts.app')
 
 @section('content')
-<div class="container">
+<div class="container p-0" style="max-width: 600px;">
     <!-- Chat Header -->
-    <div class="d-flex align-items-center mb-3 p-2 rounded shadow-sm bg-white">
+    <div class="d-flex align-items-center mb-2 p-2 rounded shadow-sm bg-white">
         <img src="{{ $receiver->avatar ?? 'https://ui-avatars.com/api/?name=' . urlencode($receiver->name) . '&background=random' }}"
              alt="{{ $receiver->name }}"
              class="rounded-circle me-3"
-             style="width:50px; height:50px; object-fit:cover;">
+             style="width:40px; height:40px; object-fit:cover;">
         <div>
             <h5 class="fw-bold mb-0 d-flex align-items-center">
                 <span id="partner-name">{{ $receiver->name }}</span>
                 <span class="status-dot ms-2" id="status-{{ $receiver->id }}"
-                      style="width:12px; height:12px; border-radius:50%; display:inline-block; background:gray;"></span>
+                      style="width:10px; height:10px; border-radius:50%; display:inline-block; background:gray;"></span>
             </h5>
             <small id="typing-indicator" class="text-muted fst-italic" style="display:none;">
                 typing...
@@ -21,12 +21,12 @@
     </div>
 
     <!-- Chat Messages Box -->
-    <div id="messages" class="border p-3 mb-2 bg-light"
-         style="height:400px; overflow-y:auto; border-radius:12px; display:flex; flex-direction:column;">
+    <div id="messages" class="border p-2 bg-light mb-2"
+         style="height:80vh; overflow-y:auto; border-radius:12px; display:flex; flex-direction:column-reverse; gap:6px;">
     </div>
 
     <!-- Chat Input -->
-    <div class="input-group mt-2">
+    <div class="input-group mb-3">
         <input type="text" id="message" class="form-control" placeholder="Type a message...">
         <button id="send" class="btn btn-primary">
             <i class="bi bi-send"></i>
@@ -37,9 +37,6 @@
 
 @section('scripts')
 <script type="module">
-/* -----------------------------
-   Config / DOM
------------------------------ */
 let conversationId = @json($conversation->id ?? null);
 const myId = Number(@json(auth()->id()));
 const partnerId = Number(@json($receiver->id));
@@ -51,23 +48,23 @@ const typingEl = document.getElementById("typing-indicator");
 
 let currentChatSubscription = null;
 
-// ✅ Fix for browser back/forward navigation restoring old state
-window.addEventListener("pageshow", function (event) {
+// ✅ Reload page on back/forward to avoid stale messages
+window.addEventListener("pageshow", function(event) {
     if (event.persisted || (performance.getEntriesByType("navigation")[0]?.type === "back_forward")) {
         window.location.reload();
     }
 });
 
-/* -----------------------------
-   Utilities
------------------------------ */
+// -----------------------------
+// Utilities
+// -----------------------------
 function formatDate(dateStr) {
     let d = new Date(dateStr);
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function scrollToBottom() {
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    messagesEl.scrollTop = 0; // column-reverse: top = bottom
 }
 
 function renderMessage(msg, isTemp = false) {
@@ -78,8 +75,9 @@ function renderMessage(msg, isTemp = false) {
     let alignClass = isMine ? "text-end" : "text-start";
 
     let wrapper = document.createElement("div");
-    wrapper.className = `d-flex flex-column ${alignClass} mb-3`;
+    wrapper.className = `d-flex flex-column ${alignClass}`;
     wrapper.id = `msg-${msg.id}`;
+    if (isTemp) wrapper.classList.add("opacity-50");
 
     wrapper.innerHTML = `
         <div class="p-2 px-3 ${bubbleClass} rounded-3 shadow-sm message-bubble"
@@ -91,24 +89,21 @@ function renderMessage(msg, isTemp = false) {
         </div>
     `;
 
-    if (isTemp) wrapper.classList.add("opacity-50");
-    messagesEl.appendChild(wrapper);
-    scrollToBottom();
+    messagesEl.prepend(wrapper); // prepend for column-reverse
 }
 
-/* -----------------------------
-   Load history
------------------------------ */
+// -----------------------------
+// Load history
+// -----------------------------
 (@json($messages ?? [])).forEach(m => renderMessage(m));
 scrollToBottom();
 
-/* -----------------------------
-   Subscriptions
------------------------------ */
+// -----------------------------
+// Subscriptions
+// -----------------------------
 function subscribeToTyping() {
     Echo.private(`typing.${myId}`)
         .listen('.UserTyping', (e) => {
-            // ✅ Show typing only if sender is current chat partner
             if (e.senderId === partnerId) {
                 typingEl.style.display = e.isTyping ? "inline" : "none";
             }
@@ -160,9 +155,9 @@ function subscribeToUserChannel() {
         });
 }
 
-/* -----------------------------
-   Presence (online users)
------------------------------ */
+// -----------------------------
+// Presence (online users)
+// -----------------------------
 Echo.join('online-users')
     .here(users => {
         statusEl.style.background = users.some(u => Number(u.id) === partnerId) ? 'green' : 'gray';
@@ -170,16 +165,16 @@ Echo.join('online-users')
     .joining(user => { if (Number(user.id) === partnerId) statusEl.style.background = 'green'; })
     .leaving(user => { if (Number(user.id) === partnerId) statusEl.style.background = 'gray'; });
 
-/* -----------------------------
-   Boot subscriptions
------------------------------ */
+// -----------------------------
+// Boot subscriptions
+// -----------------------------
 subscribeToTyping();
 subscribeToUserChannel();
 if (conversationId) subscribeToChat(conversationId);
 
-/* -----------------------------
-   Typing endpoint
------------------------------ */
+// -----------------------------
+// Typing endpoint
+// -----------------------------
 function sendTyping(isTyping) {
     const url = `/chat/typing/${partnerId}`;
     const payload = JSON.stringify({ isTyping, _token: "{{ csrf_token() }}" });
@@ -192,9 +187,9 @@ function sendTyping(isTyping) {
 input.addEventListener('focus', () => sendTyping(true));
 input.addEventListener('blur', () => sendTyping(false));
 
-/* -----------------------------
-   Send message
------------------------------ */
+// -----------------------------
+// Send message
+// -----------------------------
 async function sendMessage() {
     let text = input.value.trim();
     if (!text) return;
@@ -234,9 +229,9 @@ async function sendMessage() {
 document.getElementById("send").addEventListener("click", sendMessage);
 input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); sendMessage(); } });
 
-/* -----------------------------
-   Mark as read
------------------------------ */
+// -----------------------------
+// Mark as read
+// -----------------------------
 function markAsRead() {
     if (!conversationId) return;
     fetch(`/chat/${conversationId}/read`, {
@@ -247,8 +242,8 @@ function markAsRead() {
 </script>
 
 <style>
-.message-bubble { font-size: 15px; line-height: 1.4; }
+.message-bubble { font-size: 14px; line-height: 1.3; }
 .opacity-50 { opacity: 0.5; }
+#messages { padding-bottom: 10px; }
 </style>
-
 @endsection
