@@ -14,7 +14,7 @@
 
         <!-- Title -->
         <h3 class="fw-bold text-dark mb-3">
-            <i class="bi bi-chat-dots-fill text-primary me-2"></i> Welcome to Chat App
+            <i class="bi bi-chat-dots-fill text-primary me-2"></i> Welcome to MSA Chat
         </h3>
 
         <!-- Subtitle -->

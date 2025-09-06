@@ -8,139 +8,174 @@ use App\Events\UserTyping;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
+use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 class ChatController extends Controller
 {
     public function index()
     {
-        $authId = Auth::id();
+        try {
+            $authId = Auth::id();
 
-        $conversations = Conversation::where('user_one_id', $authId)
-            ->orWhere('user_two_id', $authId)
-            ->with(['messages' => function ($q) {
-                $q->latest(); // eager load latest messages
-            }])
-            ->get();
+            $conversations = Conversation::where('user_one_id', $authId)
+                ->orWhere('user_two_id', $authId)
+                ->with(['messages' => function ($q) {
+                    $q->latest();
+                }])
+                ->get();
 
-        $users = $conversations->map(function ($conversation) use ($authId) {
-            $partnerId = $conversation->user_one_id == $authId
-                ? $conversation->user_two_id
-                : $conversation->user_one_id;
+            $users = $conversations->map(function ($conversation) use ($authId) {
+                $partnerId = $conversation->user_one_id == $authId
+                    ? $conversation->user_two_id
+                    : $conversation->user_one_id;
 
-            $user = User::find($partnerId);
+                $user = User::find($partnerId);
 
-            // Last message
-            $lastMessage = $conversation->messages->first();
-            $user->last_message = $lastMessage;
+                if (!$user) {
+                    return null;
+                }
 
-            // Unread messages count (from partner → me)
-            $unreadCount = $conversation->messages()
-                ->where('sender_id', $partnerId)
-                ->where('is_read', 0)
-                ->count();
+                $lastMessage = $conversation->messages->first();
+                $user->last_message = $lastMessage;
 
-            $user->unread_count = $unreadCount;
+                $unreadCount = $conversation->messages()
+                    ->where('sender_id', $partnerId)
+                    ->where('is_read', 0)
+                    ->count();
 
-            return $user;
-        });
+                $user->unread_count = $unreadCount;
 
-        // 🔥 Sort by latest message timestamp (descending)
-        $users = $users->sortByDesc(function ($user) {
-            return optional($user->last_message)->created_at;
-        })->values();
+                return $user;
+            })->filter();
 
-        return view('chat.index', compact('users'));
+            $users = $users->sortByDesc(function ($user) {
+                return optional($user->last_message)->created_at;
+            })->values();
+
+            return view('chat.index', compact('users'));
+        } catch (Exception $e) {
+            Log::error('Chat Index Error: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Something went wrong while loading your chats.');
+        }
     }
 
 
 
-    // ✅ Show chat with specific user (do not create conversation here)
+
+    //  Show chat with specific user (do not create conversation here)
     public function show($userId)
     {
-        $authId = Auth::id();
+        try {
+            $authId = Auth::id();
 
-        $conversation = Conversation::where(function ($q) use ($authId, $userId) {
-            $q->where('user_one_id', $authId)->where('user_two_id', $userId);
-        })->orWhere(function ($q) use ($authId, $userId) {
-            $q->where('user_one_id', $userId)->where('user_two_id', $authId);
-        })->first();
+            $conversation = Conversation::where(function ($q) use ($authId, $userId) {
+                $q->where('user_one_id', $authId)->where('user_two_id', $userId);
+            })->orWhere(function ($q) use ($authId, $userId) {
+                $q->where('user_one_id', $userId)->where('user_two_id', $authId);
+            })->first();
 
-        $messages = $conversation
-            ? $conversation->messages()->with('sender')->get()
-            : collect();
+            $messages = $conversation
+                ? $conversation->messages()->with('sender')->get()
+                : collect();
 
-        $receiver = User::findOrFail($userId);
+            $receiver = User::findOrFail($userId);
 
-        return view('chat.show', compact('conversation', 'messages', 'receiver'));
+            return view('chat.show', compact('conversation', 'messages', 'receiver'));
+        } catch (Exception $e) {
+            Log::error('Chat Show Error: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Something went wrong while loading the conversation.');
+        }
     }
+
 
     public function send(Request $request, $conversationId = null)
     {
-        $request->validate([
-            'message' => 'required|string',
-        ]);
-
-        $authId = Auth::id();
-
-        // ✅ If no conversationId → create one
-        if (!$conversationId) {
+        try {
             $request->validate([
-                'receiver_id' => 'required|exists:users,id',
+                'message' => 'required|string|max:1000',
             ]);
 
-            $conversation = Conversation::firstOrCreate([
-                'user_one_id' => min($authId, $request->receiver_id),
-                'user_two_id' => max($authId, $request->receiver_id),
+            $authId = Auth::id();
+
+            //  If no conversationId → create one
+            if (!$conversationId) {
+                $request->validate([
+                    'receiver_id' => 'required|integer|exists:users,id',
+                ]);
+
+                $conversation = Conversation::firstOrCreate([
+                    'user_one_id' => min($authId, $request->receiver_id),
+                    'user_two_id' => max($authId, $request->receiver_id),
+                ]);
+
+                $conversationId = $conversation->id;
+            } else {
+                $conversation = Conversation::findOrFail($conversationId);
+            }
+
+            $message = Message::create([
+                'conversation_id' => $conversationId,
+                'sender_id' => $authId,
+                'message' => $request->message,
             ]);
 
-            $conversationId = $conversation->id;
-        } else {
-            $conversation = Conversation::findOrFail($conversationId);
+            broadcast(new MessageSent($message))->toOthers();
+
+            return response()->json([
+                'message' => $message,
+                'conversation_id' => $conversationId,
+            ]);
+        } catch (Exception $e) {
+            Log::error('Chat Show Error: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Something went wrong while loading the conversation.');
         }
-
-        $message = Message::create([
-            'conversation_id' => $conversationId,
-            'sender_id' => $authId,
-            'message' => $request->message,
-        ]);
-
-        broadcast(new MessageSent($message))->toOthers();
-
-        return response()->json([
-            'message' => $message,
-            'conversation_id' => $conversationId, // ✅ return id for frontend
-        ]);
     }
 
 
     public function typing(Request $request, $receiverId)
     {
-        broadcast(new UserTyping(
-            auth()->id(),
-            auth()->user()->name,
-            $receiverId,
-            $request->isTyping
-        ));
+        try {
+            broadcast(new UserTyping(
+                auth()->id(),
+                auth()->user()->name,
+                $receiverId,
+                $request->isTyping
+            ));
 
-        return response()->json(['status' => 'ok']);
+            return response()->json(['status' => 'ok']);
+        } catch (Exception $e) {
+            Log::error('Typing Event Error: ' . $e->getMessage());
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to send typing event.'
+            ], 500);
+        }
     }
+
 
     public function markAsRead($conversationId)
     {
-        $conversation = Conversation::findOrFail($conversationId);
-        $userId = auth()->id();
+        try {
+            $conversation = Conversation::findOrFail($conversationId);
+            $userId = auth()->id();
 
-        // Update messages not sent by me
-        $conversation->messages()
-            ->where('sender_id', '!=', $userId)
-            ->where('is_read', 0)
-            ->update(['is_read' => 1]);
+            $conversation->messages()
+                ->where('sender_id', '!=', $userId)
+                ->where('is_read', 0)
+                ->update(['is_read' => 1]);
 
-        // Broadcast read event
-        broadcast(new MessageRead($conversation, $userId))->toOthers();
+            broadcast(new MessageRead($conversation, $userId))->toOthers();
 
-        return response()->json(['status' => 'success']);
+            return response()->json(['status' => 'success']);
+        } catch (Exception $e) {
+            Log::error('MarkAsRead Error: ' . $e->getMessage());
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to mark messages as read.'
+            ], 500);
+        }
     }
 }

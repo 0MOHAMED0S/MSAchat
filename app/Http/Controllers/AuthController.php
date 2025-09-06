@@ -15,12 +15,12 @@ class AuthController extends Controller
         $this->authRepository = $authRepository;
     }
 
-public function redirect()
-{
-    return Socialite::driver('google')
-        ->with(['prompt' => 'select_account']) // force account selection
-        ->redirect();
-}
+    public function redirect()
+    {
+        return Socialite::driver('google')
+            ->with(['prompt' => 'select_account']) // force account selection
+            ->redirect();
+    }
 
     public function callback()
     {

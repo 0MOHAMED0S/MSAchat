@@ -5,17 +5,20 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\FriendController;
 
-Route::get('/login', function () {
-    return view('chat.login');
-})->name('login')->middleware('guest');
 
-Route::get('auth/google', [AuthController::class, 'redirect'])->name('login.google');
-Route::get('auth/google/callback', [AuthController::class, 'callback'])->name('google.callback');
-Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
+Route::middleware('guest')->group(function () {
+    Route::get('/login', function () {
+        return view('chat.login');
+    })->name('login');
 
+    Route::get('auth/google', [AuthController::class, 'redirect'])->name('login.google');
+    Route::get('auth/google/callback', [AuthController::class, 'callback'])->name('google.callback');
+});
 
 
 Route::middleware('auth')->group(function () {
+    Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
+
     Route::get('/', [ChatController::class, 'index'])->name('chat.index');
     Route::get('/users', [FriendController::class, 'index'])->name('chat.users');
     Route::get('/search', [FriendController::class, 'search'])->name('chat.search');
