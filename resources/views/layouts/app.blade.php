@@ -7,7 +7,7 @@
     <title>MSA Chat</title>
 
     <!-- App Icon (Favicon) -->
-    <link rel="icon" type="image/png" href="{{ asset('favicon.png') }}">
+    <link rel="icon" type="image/png" href="{{ asset('chat (1).png') }}">
 
     <!-- Bootstrap & Icons -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -91,15 +91,6 @@
             }
         }
     </style>
-<script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
-<script>
-  window.OneSignalDeferred = window.OneSignalDeferred || [];
-  OneSignalDeferred.push(async function(OneSignal) {
-    await OneSignal.init({
-      appId: "b0b89372-73a2-4c6a-8ef7-9af8c7a9692d",
-    });
-  });
-</script>
     @yield('styles')
 </head>
 
